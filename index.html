@@ -773,7 +773,19 @@
           return;
         }
 
+        // Mark as connecting immediately to block duplicate outgoing attempts
+        if (connectionState[remoteId] !== 'connecting') {
+          connectionState[remoteId] = 'connecting';
+          renderContacts();
+          setContactStatus(remoteId);
+        }
+
         conn.on('open', () => {
+          // If already have a connection to this peer, keep the first one
+          if (connections[remoteId] && connections[remoteId] !== conn) {
+            conn.close();
+            return;
+          }
           connections[remoteId] = conn;
           connectionState[remoteId] = 'connected';
 
@@ -840,6 +852,11 @@
 
         conn.on('open', () => {
           clearTimeout(timeout);
+          // Another connection already present (e.g. incoming), keep the first
+          if (connections[targetUsername] && connections[targetUsername] !== conn) {
+            conn.close();
+            return;
+          }
           connections[targetUsername] = conn;
           connectionState[targetUsername] = 'connected';
 
