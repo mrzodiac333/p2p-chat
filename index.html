@@ -500,9 +500,9 @@
       function openChat(contactUsername) {
         if (activeChat === contactUsername) return;
 
-        // Reset unread
         if (unreadCounts[contactUsername]) {
           unreadCounts[contactUsername] = 0;
+          updateTitle();
           saveToStorage();
         }
 
@@ -549,15 +549,37 @@
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
 
+      function totalUnread() {
+        return Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+      }
+
+      function updateTitle() {
+        const total = totalUnread();
+        document.title = total > 0 ? `(${total}) PeerChat` : 'PeerChat';
+      }
+
+      function sendBrowserNotification(contactUsername, text) {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'granted') {
+          new Notification(`PeerChat - ${contactUsername}`, { body: text, icon: 'icon.svg' });
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission();
+        }
+      }
+
       function appendMessage(contactUsername, msg) {
         if (!chats[contactUsername]) chats[contactUsername] = [];
-        // Avoid duplicate
         if (chats[contactUsername].some(m => m.id === msg.id)) return;
         chats[contactUsername].push(msg);
 
         const isActive = activeChat === contactUsername;
-        if (!isActive && msg.from !== username) {
-          unreadCounts[contactUsername] = (unreadCounts[contactUsername] || 0) + 1;
+        if (msg.from !== username) {
+          if (!isActive) {
+            unreadCounts[contactUsername] = (unreadCounts[contactUsername] || 0) + 1;
+            showToast(`\u{1F4AC} ${contactUsername}: ${msg.text.length > 50 ? msg.text.slice(0, 50) + '\u2026' : msg.text}`, 'info', 4000);
+            sendBrowserNotification(contactUsername, msg.text);
+          }
+          updateTitle();
         }
 
         renderContacts();
@@ -936,6 +958,7 @@
         activeChat = null;
         noChatSelected.style.display = '';
         activeChatEl.classList.remove('visible');
+        document.title = 'PeerChat';
         showScreen(loginScreen);
         usernameInput.value = '';
         passwordInput.value = '';
