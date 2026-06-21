@@ -70,6 +70,8 @@
     .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
     .status-dot.online { background: #2ecc71; box-shadow: 0 0 6px rgba(46,204,113,0.4); }
     .status-dot.offline { background: #636e72; }
+    .status-dot.connecting { background: #f39c12; box-shadow: 0 0 6px rgba(243,156,18,0.4); animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
     #logout-btn {
       padding: 6px 14px; border: 1px solid #3d3d5c; border-radius: 6px;
       background: transparent; color: #aaa; font-size: 13px; cursor: pointer;
@@ -290,6 +292,7 @@
               <button id="back-to-contacts">&larr;</button>
               <span id="chat-partner"></span>
               <span id="chat-status" class="status-dot offline"></span>
+              <span id="chat-status-text" style="font-size:12px;color:#888;"></span>
             </div>
             <div id="messages-container"></div>
             <div id="message-input-area">
@@ -496,6 +499,25 @@
         });
       }
 
+      const chatStatusText = $('chat-status-text');
+
+      function setContactStatus(username) {
+        const state = connectionState[username];
+        const isActive = activeChat === username;
+        if (isActive) {
+          if (state === 'connected') {
+            chatStatus.className = 'status-dot online';
+            chatStatusText.textContent = 'Online';
+          } else if (state === 'connecting') {
+            chatStatus.className = 'status-dot connecting';
+            chatStatusText.textContent = 'Connecting...';
+          } else {
+            chatStatus.className = 'status-dot offline';
+            chatStatusText.textContent = 'Offline';
+          }
+        }
+      }
+
       // ===== Chat UI =====
       function openChat(contactUsername) {
         if (activeChat === contactUsername) return;
@@ -510,8 +532,7 @@
         noChatSelected.style.display = 'none';
         activeChatEl.classList.add('visible');
         chatPartner.textContent = contactUsername;
-        const isOnline = connectionState[contactUsername] === 'connected';
-        chatStatus.className = `status-dot ${isOnline ? 'online' : 'offline'}`;
+        setContactStatus(contactUsername);
         renderMessages(contactUsername);
         renderContacts();
         messageInput.focus();
@@ -710,13 +731,13 @@
         peer.on('reconnected', () => {
           peerStatusDot.className = 'status-dot online';
           showToast('Reconnected!', 'success');
-          // Re-establish connections
           contacts.forEach(c => {
             if (connectionState[c.username] !== 'connected') {
               attemptConnect(c.username);
             }
           });
           renderContacts();
+          if (activeChat) setContactStatus(activeChat);
         });
 
         peer.on('close', () => {
@@ -749,11 +770,7 @@
 
           showToast(`${remoteId} is now connected!`, 'success');
           renderContacts();
-
-          // If we have active chat with this user, update status
-          if (activeChat === remoteId) {
-            chatStatus.className = 'status-dot online';
-          }
+          setContactStatus(remoteId);
         });
 
         conn.on('data', (data) => {
@@ -767,9 +784,7 @@
           connectionState[remoteId] = 'disconnected';
           showToast(`${remoteId} went offline`, 'info', 2000);
           renderContacts();
-          if (activeChat === remoteId) {
-            chatStatus.className = 'status-dot offline';
-          }
+          setContactStatus(remoteId);
         });
 
         conn.on('error', (err) => {
@@ -782,11 +797,15 @@
         if (connections[targetUsername] && connectionState[targetUsername] === 'connected') return;
         if (connectionState[targetUsername] === 'connecting') return;
 
+        if (peer && peer.disconnected) {
+          peer.reconnect();
+          return;
+        }
+
         connectionState[targetUsername] = 'connecting';
         renderContacts();
 
         const conn = peer.connect(targetUsername, {
-          reliable: true,
           serialization: 'json',
         });
 
@@ -800,11 +819,9 @@
           if (connectionState[targetUsername] === 'connecting') {
             connectionState[targetUsername] = 'disconnected';
             renderContacts();
-            if (activeChat === targetUsername) {
-              chatStatus.className = 'status-dot offline';
-            }
+            setContactStatus(targetUsername);
           }
-        }, 8000);
+        }, 15000);
 
         conn.on('open', () => {
           clearTimeout(timeout);
@@ -818,9 +835,7 @@
 
           showToast(`Connected to ${targetUsername}`, 'success', 2000);
           renderContacts();
-          if (activeChat === targetUsername) {
-            chatStatus.className = 'status-dot online';
-          }
+          setContactStatus(targetUsername);
         });
 
         conn.on('data', (data) => {
@@ -834,9 +849,7 @@
           delete connections[targetUsername];
           connectionState[targetUsername] = 'disconnected';
           renderContacts();
-          if (activeChat === targetUsername) {
-            chatStatus.className = 'status-dot offline';
-          }
+          setContactStatus(targetUsername);
         });
 
         conn.on('error', (err) => {
@@ -844,13 +857,27 @@
           if (connectionState[targetUsername] === 'connecting') {
             connectionState[targetUsername] = 'disconnected';
             renderContacts();
+            setContactStatus(targetUsername);
           }
         });
+      }
+
+      function ensurePeerConnected() {
+        if (!peer) return false;
+        if (peer.disconnected) {
+          peer.reconnect();
+          return false;
+        }
+        return true;
       }
 
       function sendMessageTo(targetUsername, text) {
         const conn = connections[targetUsername];
         if (!conn || connectionState[targetUsername] !== 'connected') {
+          if (ensurePeerConnected()) {
+            // Maybe the connection dropped - try reconnecting
+            attemptConnect(targetUsername);
+          }
           showToast(`${targetUsername} is offline. Can't send message.`, 'error');
           return false;
         }
@@ -984,6 +1011,33 @@
           // We don't auto-login without password for security
         }
       }
+
+      // ===== Background reconnect (mobile fix) =====
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && peer) {
+          if (peer.disconnected) {
+            peer.reconnect();
+          }
+          setTimeout(() => {
+            contacts.forEach(c => {
+              if (connectionState[c.username] !== 'connected') {
+                attemptConnect(c.username);
+              }
+            });
+          }, 1000);
+        }
+      });
+
+      // Periodic retry for disconnected contacts
+      setInterval(() => {
+        if (peer && !peer.disconnected) {
+          contacts.forEach(c => {
+            if (connectionState[c.username] !== 'connected' && connectionState[c.username] !== 'connecting') {
+              attemptConnect(c.username);
+            }
+          });
+        }
+      }, 20000);
 
       // ===== Init =====
       tryAutoLogin();
