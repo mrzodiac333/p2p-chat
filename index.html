@@ -761,6 +761,7 @@
 
         peer.on('error', (err) => {
           console.error('Peer error:', err);
+          showToast(`Connection error: ${err.message || err.type || 'unknown'}`, 'error', 5000);
         });
       }
 
@@ -886,6 +887,7 @@
 
         conn.on('error', (err) => {
           clearTimeout(timeout);
+          console.error(`Connect error to ${targetUsername}:`, err);
           if (connectionState[targetUsername] === 'connecting') {
             connectionState[targetUsername] = 'disconnected';
             renderContacts();
