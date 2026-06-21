@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PeerChat</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#0f0f23">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #0f0f23; color: #e0e0e0; height: 100vh; overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    #app { height: 100vh; display: flex; flex-direction: column; }
+    .screen { display: none; height: 100%; }
+    .screen.active { display: flex; }
+
+    /* === LOGIN SCREEN === */
+    #login-screen {
+      align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+      padding: 20px;
+    }
+    .login-card {
+      background: #1a1a2e; border-radius: 16px; padding: 40px 32px;
+      width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      border: 1px solid rgba(108,92,231,0.15);
+    }
+    .login-card .logo { font-size: 48px; text-align: center; margin-bottom: 8px; }
+    .login-card h1 { text-align: center; font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .login-card .subtitle { text-align: center; font-size: 13px; color: #888; margin-bottom: 28px; }
+    .input-group { margin-bottom: 16px; }
+    .input-group label { display: block; font-size: 13px; font-weight: 600; color: #aaa; margin-bottom: 6px; }
+    .input-group input {
+      width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #2d2d44;
+      background: #0f0f23; color: #e0e0e0; font-size: 15px; outline: none;
+      transition: border-color 0.2s;
+    }
+    .input-group input:focus { border-color: #6c5ce7; }
+    .input-group input::placeholder { color: #555; }
+    #join-btn {
+      width: 100%; padding: 13px; border: none; border-radius: 8px;
+      background: #6c5ce7; color: #fff; font-size: 16px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, transform 0.1s; margin-top: 8px;
+    }
+    #join-btn:hover { background: #5f4dd9; }
+    #join-btn:active { transform: scale(0.98); }
+    #join-btn:disabled { background: #3d3d5c; cursor: not-allowed; }
+    .error { color: #e74c3c; font-size: 13px; text-align: center; margin-top: 12px; min-height: 20px; }
+    .info { color: #666; font-size: 11px; text-align: center; margin-top: 16px; }
+
+    /* === CHAT SCREEN === */
+    #chat-screen { flex-direction: column; }
+
+    /* Top Bar */
+    #top-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px; background: #1a1a2e; border-bottom: 1px solid #2d2d44;
+      min-height: 52px; flex-shrink: 0;
+    }
+    #top-bar .brand { font-size: 18px; font-weight: 700; color: #fff; }
+    .user-info { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+    .user-info #current-username { color: #6c5ce7; font-weight: 600; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .status-dot.online { background: #2ecc71; box-shadow: 0 0 6px rgba(46,204,113,0.4); }
+    .status-dot.offline { background: #636e72; }
+    #logout-btn {
+      padding: 6px 14px; border: 1px solid #3d3d5c; border-radius: 6px;
+      background: transparent; color: #aaa; font-size: 13px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    #logout-btn:hover { border-color: #e74c3c; color: #e74c3c; }
+
+    /* Chat Container */
+    .chat-container { display: flex; flex: 1; overflow: hidden; }
+
+    /* Sidebar */
+    #sidebar {
+      width: 260px; background: #1a1a2e; border-right: 1px solid #2d2d44;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .sidebar-header { padding: 16px 16px 12px; }
+    .sidebar-header h3 { font-size: 15px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
+    .add-contact {
+      display: flex; gap: 8px; padding: 0 16px 12px;
+    }
+    .add-contact input {
+      flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #2d2d44;
+      background: #0f0f23; color: #e0e0e0; font-size: 13px; outline: none;
+    }
+    .add-contact input:focus { border-color: #6c5ce7; }
+    .add-contact input::placeholder { color: #555; }
+    #add-contact-btn {
+      width: 36px; height: 36px; border-radius: 6px; border: none;
+      background: #6c5ce7; color: #fff; font-size: 18px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s; flex-shrink: 0;
+    }
+    #add-contact-btn:hover { background: #5f4dd9; }
+
+    #contacts-list { flex: 1; overflow-y: auto; padding: 0 8px; }
+    .contact-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 8px; cursor: pointer;
+      transition: background 0.15s; margin-bottom: 2px;
+    }
+    .contact-item:hover { background: #2d2d44; }
+    .contact-item.active { background: #2d2d44; }
+    .contact-item .avatar {
+      width: 36px; height: 36px; border-radius: 50%; background: #6c5ce7;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 600; color: #fff; flex-shrink: 0;
+    }
+    .contact-item .contact-info { flex: 1; min-width: 0; }
+    .contact-item .contact-name { font-size: 14px; font-weight: 600; color: #fff; }
+    .contact-item .contact-preview { font-size: 12px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .contact-item .contact-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+    .contact-item .contact-time { font-size: 11px; color: #666; }
+    .contact-item .unread-badge {
+      background: #6c5ce7; color: #fff; font-size: 11px; font-weight: 600;
+      min-width: 18px; height: 18px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center; padding: 0 5px;
+    }
+    .sidebar-footer {
+      padding: 10px 16px; border-top: 1px solid #2d2d44;
+      font-size: 11px; color: #555; text-align: center;
+    }
+
+    /* Main Chat Area */
+    #chat-area { flex: 1; display: flex; flex-direction: column; background: #0f0f23; }
+    .empty-state {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 40px; text-align: center;
+    }
+    .empty-state .empty-icon { font-size: 64px; margin-bottom: 16px; opacity: 0.4; }
+    .empty-state h2 { font-size: 22px; color: #fff; margin-bottom: 8px; }
+    .empty-state p { font-size: 14px; color: #666; max-width: 280px; }
+
+    #active-chat { display: none; flex-direction: column; height: 100%; }
+    #active-chat.visible { display: flex; }
+
+    #chat-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 20px; border-bottom: 1px solid #2d2d44;
+      background: #1a1a2e;
+    }
+    #chat-header #chat-partner { font-size: 16px; font-weight: 600; color: #fff; }
+    #chat-header .status-dot { width: 10px; height: 10px; }
+
+    #messages-container {
+      flex: 1; overflow-y: auto; padding: 20px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .message-row { display: flex; margin-bottom: 2px; }
+    .message-row.own { justify-content: flex-end; }
+    .message-row.other { justify-content: flex-start; }
+    .message-bubble {
+      max-width: 70%; padding: 10px 14px; border-radius: 16px;
+      font-size: 14px; line-height: 1.4; word-wrap: break-word;
+      position: relative;
+    }
+    .message-row.own .message-bubble {
+      background: #6c5ce7; color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .message-row.other .message-bubble {
+      background: #2d2d44; color: #e0e0e0;
+      border-bottom-left-radius: 4px;
+    }
+    .message-time {
+      font-size: 10px; color: rgba(255,255,255,0.45); margin-top: 4px; text-align: right;
+    }
+    .message-row.other .message-time { color: #888; }
+    .date-separator {
+      text-align: center; font-size: 12px; color: #555;
+      padding: 16px 0 8px; font-weight: 500;
+    }
+
+    #message-input-area {
+      display: flex; gap: 8px; padding: 12px 16px;
+      border-top: 1px solid #2d2d44; background: #1a1a2e;
+    }
+    #message-input {
+      flex: 1; padding: 12px 16px; border-radius: 8px; border: 1px solid #2d2d44;
+      background: #0f0f23; color: #e0e0e0; font-size: 15px; outline: none;
+    }
+    #message-input:focus { border-color: #6c5ce7; }
+    #message-input::placeholder { color: #555; }
+    #send-btn {
+      padding: 12px 24px; border: none; border-radius: 8px;
+      background: #6c5ce7; color: #fff; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #send-btn:hover { background: #5f4dd9; }
+    #send-btn:disabled { background: #3d3d5c; cursor: not-allowed; }
+
+    /* Scrollbar */
+    #contacts-list::-webkit-scrollbar,
+    #messages-container::-webkit-scrollbar { width: 6px; }
+    #contacts-list::-webkit-scrollbar-track,
+    #messages-container::-webkit-scrollbar-track { background: transparent; }
+    #contacts-list::-webkit-scrollbar-thumb,
+    #messages-container::-webkit-scrollbar-thumb { background: #3d3d5c; border-radius: 3px; }
+
+    /* Connection status toast */
+    #toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      padding: 10px 24px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      z-index: 1000; opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
+    #toast.info { background: #2d2d44; color: #e0e0e0; }
+    #toast.error { background: #c0392b; color: #fff; }
+    #toast.success { background: #27ae60; color: #fff; }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      #sidebar { width: 100%; position: absolute; top: 52px; left: 0; right: 0; bottom: 0; z-index: 10; }
+      #sidebar.hidden { display: none; }
+      #chat-area { width: 100%; }
+      .message-bubble { max-width: 85%; }
+      .login-card { padding: 28px 20px; }
+      .mobile-back { display: block; }
+    }
+    @media (min-width: 641px) {
+      .mobile-back { display: none; }
+    }
+    #back-to-contacts {
+      display: none; padding: 8px 12px; border: none; background: transparent;
+      color: #aaa; font-size: 20px; cursor: pointer;
+    }
+    @media (max-width: 640px) { #back-to-contacts { display: block; } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Login -->
+    <div id="login-screen" class="screen active">
+      <div class="login-card">
+        <div class="logo">&#128172;</div>
+        <h1>PeerChat</h1>
+        <p class="subtitle">Peer-to-peer chat, no servers</p>
+        <div class="input-group">
+          <label>Username</label>
+          <input type="text" id="username-input" placeholder="Pick a username..." autocomplete="off" autocorrect="off" spellcheck="false">
+        </div>
+        <div class="input-group">
+          <label>Password</label>
+          <input type="password" id="password-input" placeholder="Your password">
+        </div>
+        <button id="join-btn">Join Chat</button>
+        <p id="login-error" class="error"></p>
+        <p class="info">Username must be unique across all users. Password is stored only on this device.</p>
+      </div>
+    </div>
+
+    <!-- Chat -->
+    <div id="chat-screen" class="screen">
+      <header id="top-bar">
+        <div class="brand">&#128172; PeerChat</div>
+        <div class="user-info">
+          <span class="status-dot online" id="peer-status-dot"></span>
+          <span id="current-username"></span>
+          <button id="logout-btn">Logout</button>
+        </div>
+      </header>
+      <div class="chat-container">
+        <aside id="sidebar">
+          <div class="sidebar-header"><h3>Contacts</h3></div>
+          <div class="add-contact">
+            <input type="text" id="add-contact-input" placeholder="Add by username..." autocomplete="off" autocorrect="off" spellcheck="false">
+            <button id="add-contact-btn">+</button>
+          </div>
+          <div id="contacts-list"></div>
+          <div class="sidebar-footer"><span>P2P &#183; Direct &#183; Private</span></div>
+        </aside>
+        <main id="chat-area">
+          <div id="no-chat-selected" class="empty-state">
+            <div class="empty-icon">&#128172;</div>
+            <h2>No chat selected</h2>
+            <p>Add a contact by their username to start a conversation</p>
+          </div>
+          <div id="active-chat">
+            <div id="chat-header">
+              <button id="back-to-contacts">&larr;</button>
+              <span id="chat-partner"></span>
+              <span id="chat-status" class="status-dot offline"></span>
+            </div>
+            <div id="messages-container"></div>
+            <div id="message-input-area">
+              <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+              <button id="send-btn">Send</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div id="toast"></div>
+
+  <script>
+    (function() {
+      'use strict';
+
+      const STORAGE_KEY = 'p2pchat';
+      const MESSAGES_PER_CHAT = 500;
+
+      // ===== State =====
+      let username = null;
+      let passwordHash = null;
+      let peer = null;
+      const connections = {};       // { peerId: DataConnection }
+      const connectionState = {};   // { peerId: 'connected'|'connecting'|'disconnected' }
+      let contacts = [];            // [{ username, addedAt }]
+      const chats = {};            // { username: [message] }
+      let activeChat = null;
+      let unreadCounts = {};        // { username: count }
+
+      // ===== DOM refs =====
+      const $ = id => document.getElementById(id);
+      const loginScreen = $('login-screen');
+      const chatScreen = $('chat-screen');
+      const usernameInput = $('username-input');
+      const passwordInput = $('password-input');
+      const joinBtn = $('join-btn');
+      const loginError = $('login-error');
+      const currentUsername = $('current-username');
+      const logoutBtn = $('logout-btn');
+      const addContactInput = $('add-contact-input');
+      const addContactBtn = $('add-contact-btn');
+      const contactsList = $('contacts-list');
+      const noChatSelected = $('no-chat-selected');
+      const activeChatEl = $('active-chat');
+      const chatPartner = $('chat-partner');
+      const chatStatus = $('chat-status');
+      const messagesContainer = $('messages-container');
+      const messageInput = $('message-input');
+      const sendBtn = $('send-btn');
+      const toast = $('toast');
+      const backBtn = $('back-to-contacts');
+      const peerStatusDot = $('peer-status-dot');
+
+      // ===== Storage =====
+      function loadFromStorage() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return null;
+          return JSON.parse(raw);
+        } catch { return null; }
+      }
+
+      function saveToStorage() {
+        try {
+          const data = {
+            username,
+            passwordHash,
+            contacts: contacts.map(c => ({ username: c.username, addedAt: c.addedAt })),
+            chats: {},
+            unreadCounts,
+          };
+          // Only persist chats for known contacts
+          contacts.forEach(c => {
+            if (chats[c.username]) {
+              data.chats[c.username] = chats[c.username].slice(-MESSAGES_PER_CHAT);
+            }
+          });
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch {}
+      }
+
+      function persistChats() {
+        // Debounced: called after each new message
+        saveToStorage();
+      }
+
+      // ===== Toast =====
+      let toastTimer = null;
+      function showToast(msg, type = 'info', duration = 3000) {
+        toast.textContent = msg;
+        toast.className = `show ${type}`;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { toast.className = ''; }, duration);
+      }
+
+      // ===== Password hashing =====
+      async function hashPassword(password) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password);
+        const buf = await crypto.subtle.digest('SHA-256', data);
+        const bytes = new Uint8Array(buf);
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+
+      // ===== Utilities =====
+      function generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      }
+
+      function formatTime(ts) {
+        const d = new Date(ts);
+        const now = new Date();
+        const hours = d.getHours().toString().padStart(2, '0');
+        const mins = d.getMinutes().toString().padStart(2, '0');
+        if (d.toDateString() === now.toDateString()) {
+          return `${hours}:${mins}`;
+        }
+        const date = `${d.getMonth()+1}/${d.getDate()}`;
+        return `${date} ${hours}:${mins}`;
+      }
+
+      function formatDateSeparator(ts) {
+        const d = new Date(ts);
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (d.toDateString() === now.toDateString()) return 'Today';
+        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+
+      function avatarLetter(name) {
+        return name.charAt(0).toUpperCase();
+      }
+
+      // ===== UI: Screens =====
+      function showScreen(screen) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        screen.classList.add('active');
+      }
+
+      // ===== Contacts sidebar =====
+      function renderContacts() {
+        // Determine connection states
+        const onlineContacts = new Set();
+        Object.keys(connectionState).forEach(id => {
+          if (connectionState[id] === 'connected') onlineContacts.add(id);
+        });
+
+        if (contacts.length === 0) {
+          contactsList.innerHTML = '<div style="padding: 20px 16px; text-align: center; color: #555; font-size: 13px;">No contacts yet.<br>Add someone by their username above.</div>';
+          return;
+        }
+
+        let html = '';
+        const sorted = [...contacts].sort((a, b) => {
+          const aOnline = onlineContacts.has(a.username) ? 1 : 0;
+          const bOnline = onlineContacts.has(b.username) ? 1 : 0;
+          if (aOnline !== bOnline) return bOnline - aOnline;
+          // Sort by last message time
+          const aLast = chats[a.username]?.length ? chats[a.username][chats[a.username].length-1].timestamp : 0;
+          const bLast = chats[b.username]?.length ? chats[b.username][chats[b.username].length-1].timestamp : 0;
+          return bLast - aLast;
+        });
+
+        sorted.forEach(c => {
+          const isOnline = onlineContacts.has(c.username);
+          const isActive = activeChat === c.username;
+          const unread = unreadCounts[c.username] || 0;
+          const msgs = chats[c.username] || [];
+          const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+          const preview = lastMsg ? (lastMsg.from === username ? 'You: ' : '') + escapeHtml(lastMsg.text) : '';
+          const time = lastMsg ? formatTime(lastMsg.timestamp) : '';
+
+          html += `
+            <div class="contact-item ${isActive ? 'active' : ''}" data-username="${c.username}">
+              <div class="avatar">${avatarLetter(c.username)}</div>
+              <div class="contact-info">
+                <div class="contact-name">
+                  ${c.username} ${isOnline ? '<span class="status-dot online" style="width:6px;height:6px;vertical-align:middle;margin-left:4px;"></span>' : ''}
+                </div>
+                <div class="contact-preview">${preview}</div>
+              </div>
+              <div class="contact-meta">
+                <div class="contact-time">${time}</div>
+                ${unread > 0 ? `<div class="unread-badge">${unread > 99 ? '99+' : unread}</div>` : ''}
+              </div>
+            </div>
+          `;
+        });
+        contactsList.innerHTML = html;
+
+        // Click handlers
+        contactsList.querySelectorAll('.contact-item').forEach(el => {
+          el.addEventListener('click', () => {
+            const c = el.dataset.username;
+            openChat(c);
+            if (window.innerWidth <= 640) {
+              document.getElementById('sidebar').classList.add('hidden');
+            }
+          });
+        });
+      }
+
+      // ===== Chat UI =====
+      function openChat(contactUsername) {
+        if (activeChat === contactUsername) return;
+
+        // Reset unread
+        if (unreadCounts[contactUsername]) {
+          unreadCounts[contactUsername] = 0;
+          saveToStorage();
+        }
+
+        activeChat = contactUsername;
+        noChatSelected.style.display = 'none';
+        activeChatEl.classList.add('visible');
+        chatPartner.textContent = contactUsername;
+        const isOnline = connectionState[contactUsername] === 'connected';
+        chatStatus.className = `status-dot ${isOnline ? 'online' : 'offline'}`;
+        renderMessages(contactUsername);
+        renderContacts();
+        messageInput.focus();
+      }
+
+      function renderMessages(contactUsername) {
+        const msgs = chats[contactUsername] || [];
+        if (msgs.length === 0) {
+          messagesContainer.innerHTML = `<div class="empty-state" style="flex:1;padding:40px;">
+            <p style="color:#555;">No messages yet. Say hello!</p>
+          </div>`;
+          return;
+        }
+
+        let html = '';
+        let lastDate = null;
+        msgs.forEach(msg => {
+          const msgDate = new Date(msg.timestamp).toDateString();
+          if (msgDate !== lastDate) {
+            html += `<div class="date-separator">${formatDateSeparator(msg.timestamp)}</div>`;
+            lastDate = msgDate;
+          }
+          const isOwn = msg.from === username;
+          html += `
+            <div class="message-row ${isOwn ? 'own' : 'other'}">
+              <div class="message-bubble">
+                ${escapeHtml(msg.text)}
+                <div class="message-time">${formatTime(msg.timestamp)}</div>
+              </div>
+            </div>
+          `;
+        });
+        messagesContainer.innerHTML = html;
+        // Scroll to bottom
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+
+      function appendMessage(contactUsername, msg) {
+        if (!chats[contactUsername]) chats[contactUsername] = [];
+        // Avoid duplicate
+        if (chats[contactUsername].some(m => m.id === msg.id)) return;
+        chats[contactUsername].push(msg);
+
+        const isActive = activeChat === contactUsername;
+        if (!isActive && msg.from !== username) {
+          unreadCounts[contactUsername] = (unreadCounts[contactUsername] || 0) + 1;
+        }
+
+        renderContacts();
+        if (isActive) {
+          renderMessages(contactUsername);
+        }
+        persistChats();
+      }
+
+      // ===== PeerJS =====
+      function getPeerConfig() {
+        return {
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject',
+              },
+              {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject',
+              },
+            ]
+          }
+        };
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      async function login(usernameVal, passwordVal) {
+        const hash = await hashPassword(passwordVal);
+        const saved = loadFromStorage();
+
+        // If local account exists for this username, verify password
+        if (saved && saved.username === usernameVal) {
+          if (saved.passwordHash !== hash) {
+            loginError.textContent = 'Incorrect password for this username';
+            return false;
+          }
+          // Load saved state
+          if (saved.contacts) contacts = saved.contacts.map(c => ({ ...c }));
+          if (saved.chats) {
+            Object.keys(saved.chats).forEach(k => { chats[k] = saved.chats[k]; });
+          }
+          if (saved.unreadCounts) {
+            Object.keys(saved.unreadCounts).forEach(k => { unreadCounts[k] = saved.unreadCounts[k]; });
+          }
+        }
+
+        username = usernameVal;
+        passwordHash = hash;
+
+        joinBtn.disabled = true;
+        loginError.textContent = 'Connecting...';
+
+        try {
+          peer = new Peer(username, getPeerConfig());
+
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Connection timeout')), 10000);
+
+            peer.on('open', (id) => {
+              clearTimeout(timeout);
+              resolve(id);
+            });
+
+            peer.on('error', (err) => {
+              clearTimeout(timeout);
+              if (err.type === 'unavailable-id' || err.message?.includes('ID is taken')) {
+                reject(new Error('Username is already in use by someone else'));
+              } else {
+                reject(err);
+              }
+            });
+          });
+
+          // Successfully connected
+          setupPeerHandlers();
+          restoreState();
+          showScreen(chatScreen);
+          currentUsername.textContent = username;
+          loginError.textContent = '';
+          saveToStorage();
+          showToast(`Connected as ${username}`, 'success');
+          return true;
+
+        } catch (err) {
+          joinBtn.disabled = false;
+          loginError.textContent = err.message || 'Failed to connect';
+          if (peer) { peer.destroy(); peer = null; }
+          return false;
+        }
+      }
+
+      function restoreState() {
+        // Try to connect to saved contacts
+        contacts.forEach(c => {
+          attemptConnect(c.username);
+        });
+        renderContacts();
+      }
+
+      function setupPeerHandlers() {
+        peer.on('connection', (conn) => {
+          handleIncomingConnection(conn);
+        });
+
+        peer.on('disconnected', () => {
+          peerStatusDot.className = 'status-dot offline';
+          showToast('Disconnected from broker. Trying to reconnect...', 'error', 5000);
+          // Attempt reconnect
+          setTimeout(() => {
+            if (peer && peer.disconnected) {
+              peer.reconnect();
+            }
+          }, 2000);
+        });
+
+        peer.on('reconnected', () => {
+          peerStatusDot.className = 'status-dot online';
+          showToast('Reconnected!', 'success');
+          // Re-establish connections
+          contacts.forEach(c => {
+            if (connectionState[c.username] !== 'connected') {
+              attemptConnect(c.username);
+            }
+          });
+          renderContacts();
+        });
+
+        peer.on('close', () => {
+          peerStatusDot.className = 'status-dot offline';
+        });
+
+        peer.on('error', (err) => {
+          console.error('Peer error:', err);
+        });
+      }
+
+      function handleIncomingConnection(conn) {
+        const remoteId = conn.peer;
+
+        // If already connected to this peer, reject duplicate
+        if (connections[remoteId] && connectionState[remoteId] === 'connected') {
+          conn.close();
+          return;
+        }
+
+        conn.on('open', () => {
+          connections[remoteId] = conn;
+          connectionState[remoteId] = 'connected';
+
+          // Add to contacts if not already
+          if (!contacts.some(c => c.username === remoteId)) {
+            contacts.push({ username: remoteId, addedAt: Date.now() });
+            saveToStorage();
+          }
+
+          showToast(`${remoteId} is now connected!`, 'success');
+          renderContacts();
+
+          // If we have active chat with this user, update status
+          if (activeChat === remoteId) {
+            chatStatus.className = 'status-dot online';
+          }
+        });
+
+        conn.on('data', (data) => {
+          if (data.type === 'message') {
+            appendMessage(remoteId, data);
+          }
+        });
+
+        conn.on('close', () => {
+          delete connections[remoteId];
+          connectionState[remoteId] = 'disconnected';
+          showToast(`${remoteId} went offline`, 'info', 2000);
+          renderContacts();
+          if (activeChat === remoteId) {
+            chatStatus.className = 'status-dot offline';
+          }
+        });
+
+        conn.on('error', (err) => {
+          console.error(`Connection error with ${remoteId}:`, err);
+        });
+      }
+
+      function attemptConnect(targetUsername) {
+        if (targetUsername === username) return;
+        if (connections[targetUsername] && connectionState[targetUsername] === 'connected') return;
+        if (connectionState[targetUsername] === 'connecting') return;
+
+        connectionState[targetUsername] = 'connecting';
+        renderContacts();
+
+        const conn = peer.connect(targetUsername, {
+          reliable: true,
+          serialization: 'json',
+        });
+
+        if (!conn) {
+          connectionState[targetUsername] = 'disconnected';
+          renderContacts();
+          return;
+        }
+
+        const timeout = setTimeout(() => {
+          if (connectionState[targetUsername] === 'connecting') {
+            connectionState[targetUsername] = 'disconnected';
+            renderContacts();
+            if (activeChat === targetUsername) {
+              chatStatus.className = 'status-dot offline';
+            }
+          }
+        }, 8000);
+
+        conn.on('open', () => {
+          clearTimeout(timeout);
+          connections[targetUsername] = conn;
+          connectionState[targetUsername] = 'connected';
+
+          if (!contacts.some(c => c.username === targetUsername)) {
+            contacts.push({ username: targetUsername, addedAt: Date.now() });
+            saveToStorage();
+          }
+
+          showToast(`Connected to ${targetUsername}`, 'success', 2000);
+          renderContacts();
+          if (activeChat === targetUsername) {
+            chatStatus.className = 'status-dot online';
+          }
+        });
+
+        conn.on('data', (data) => {
+          if (data.type === 'message') {
+            appendMessage(targetUsername, data);
+          }
+        });
+
+        conn.on('close', () => {
+          clearTimeout(timeout);
+          delete connections[targetUsername];
+          connectionState[targetUsername] = 'disconnected';
+          renderContacts();
+          if (activeChat === targetUsername) {
+            chatStatus.className = 'status-dot offline';
+          }
+        });
+
+        conn.on('error', (err) => {
+          clearTimeout(timeout);
+          if (connectionState[targetUsername] === 'connecting') {
+            connectionState[targetUsername] = 'disconnected';
+            renderContacts();
+          }
+        });
+      }
+
+      function sendMessageTo(targetUsername, text) {
+        const conn = connections[targetUsername];
+        if (!conn || connectionState[targetUsername] !== 'connected') {
+          showToast(`${targetUsername} is offline. Can't send message.`, 'error');
+          return false;
+        }
+
+        const msg = {
+          id: generateId(),
+          type: 'message',
+          from: username,
+          to: targetUsername,
+          text,
+          timestamp: Date.now(),
+        };
+
+        try {
+          conn.send(msg);
+          appendMessage(targetUsername, msg);
+          return true;
+        } catch (err) {
+          showToast('Failed to send message', 'error');
+          return false;
+        }
+      }
+
+      function addContact(targetUsername) {
+        if (!targetUsername || targetUsername.trim() === '') return;
+        const name = targetUsername.trim().toLowerCase();
+        if (name === username) {
+          showToast("Can't add yourself", 'error');
+          return;
+        }
+        if (contacts.some(c => c.username === name)) {
+          showToast('Contact already added', 'info');
+          openChat(name);
+          return;
+        }
+        contacts.push({ username: name, addedAt: Date.now() });
+        saveToStorage();
+
+        // Try to connect
+        if (peer && !peer.disconnected) {
+          attemptConnect(name);
+        }
+        renderContacts();
+        openChat(name);
+        addContactInput.value = '';
+        addContactInput.blur();
+        showToast(`Added ${name}`, 'success');
+      }
+
+      // ===== UI Event Handlers =====
+      joinBtn.addEventListener('click', async () => {
+        const u = usernameInput.value.trim().toLowerCase();
+        const p = passwordInput.value;
+        if (!u) { loginError.textContent = 'Please enter a username'; return; }
+        if (!p) { loginError.textContent = 'Please enter a password'; return; }
+        if (u.length < 2) { loginError.textContent = 'Username must be at least 2 characters'; return; }
+        if (!/^[a-z0-9_-]+$/.test(u)) { loginError.textContent = 'Username: letters, numbers, _, - only'; return; }
+        await login(u, p);
+      });
+
+      // Enter key on login
+      passwordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') joinBtn.click();
+      });
+      usernameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') passwordInput.focus();
+      });
+
+      // Send message
+      function handleSend() {
+        const text = messageInput.value.trim();
+        if (!text || !activeChat) return;
+        if (!peer || peer.disconnected) {
+          showToast('You are offline. Reconnecting...', 'error');
+          return;
+        }
+        const sent = sendMessageTo(activeChat, text);
+        if (sent) messageInput.value = '';
+      }
+
+      sendBtn.addEventListener('click', handleSend);
+      messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+        }
+      });
+
+      // Add contact
+      addContactBtn.addEventListener('click', () => addContact(addContactInput.value));
+      addContactInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') addContact(addContactInput.value);
+      });
+
+      // Logout
+      logoutBtn.addEventListener('click', () => {
+        if (peer) { peer.destroy(); peer = null; }
+        username = null;
+        passwordHash = null;
+        Object.keys(connections).forEach(k => delete connections[k]);
+        Object.keys(connectionState).forEach(k => delete connectionState[k]);
+        contacts = [];
+        Object.keys(chats).forEach(k => delete chats[k]);
+        unreadCounts = {};
+        activeChat = null;
+        noChatSelected.style.display = '';
+        activeChatEl.classList.remove('visible');
+        showScreen(loginScreen);
+        usernameInput.value = '';
+        passwordInput.value = '';
+        loginError.textContent = '';
+        joinBtn.disabled = false;
+        localStorage.removeItem(STORAGE_KEY);
+      });
+
+      // Back button (mobile)
+      backBtn.addEventListener('click', () => {
+        document.getElementById('sidebar').classList.remove('hidden');
+      });
+
+      // ===== Auto-login check =====
+      async function tryAutoLogin() {
+        const saved = loadFromStorage();
+        if (saved && saved.username && saved.passwordHash && saved.contacts) {
+          usernameInput.value = saved.username;
+          passwordInput.value = '';
+          loginError.textContent = 'Enter your password to reconnect';
+          // Focus password
+          passwordInput.focus();
+          // We don't auto-login without password for security
+        }
+      }
+
+      // ===== Init =====
+      tryAutoLogin();
+      renderContacts();
+
+      // Keep sidebar visible on desktop
+      if (window.innerWidth > 640) {
+        document.getElementById('sidebar').classList.remove('hidden');
+      }
+    })();
+  </script>
+</body>
+</html>
