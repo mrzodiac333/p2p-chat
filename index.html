@@ -293,6 +293,7 @@
               <span id="chat-partner"></span>
               <span id="chat-status" class="status-dot offline"></span>
               <span id="chat-status-text" style="font-size:12px;color:#888;"></span>
+              <button id="retry-btn" title="Reconnect" style="margin-left:auto;padding:4px 10px;border:1px solid #3d3d5c;border-radius:6px;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">&#x21bb;</button>
             </div>
             <div id="messages-container"></div>
             <div id="message-input-area">
@@ -309,6 +310,11 @@
   <script>
     (function() {
       'use strict';
+
+      if (typeof Peer === 'undefined') {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f0f23;color:#e74c3c;font-family:sans-serif;padding:40px;text-align:center;font-size:18px;">Failed to load PeerJS library. Check your internet connection and try again.</div>';
+        return;
+      }
 
       const STORAGE_KEY = 'p2pchat';
       const MESSAGES_PER_CHAT = 500;
@@ -618,6 +624,10 @@
               { urls: 'stun:stun.l.google.com:19302' },
               { urls: 'stun:stun1.l.google.com:19302' },
               { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+              { urls: 'stun:stun4.l.google.com:19302' },
+              { urls: 'stun:stun.voipbuster.com:3478' },
+              { urls: 'stun:stun.voipstunt.com:3478' },
               {
                 urls: 'turn:openrelay.metered.ca:80',
                 username: 'openrelayproject',
@@ -625,6 +635,11 @@
               },
               {
                 urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject',
+              },
+              {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                 username: 'openrelayproject',
                 credential: 'openrelayproject',
               },
@@ -874,11 +889,12 @@
       function sendMessageTo(targetUsername, text) {
         const conn = connections[targetUsername];
         if (!conn || connectionState[targetUsername] !== 'connected') {
-          if (ensurePeerConnected()) {
-            // Maybe the connection dropped - try reconnecting
+          if (!connectionState[targetUsername] || connectionState[targetUsername] === 'disconnected') {
+            ensurePeerConnected();
             attemptConnect(targetUsername);
           }
-          showToast(`${targetUsername} is offline. Can't send message.`, 'error');
+          const status = connectionState[targetUsername] === 'connecting' ? 'Connecting...' : 'Offline';
+          showToast(`${targetUsername} is ${status}. Try again in a moment.`, 'error');
           return false;
         }
 
@@ -999,7 +1015,22 @@
         document.getElementById('sidebar').classList.remove('hidden');
       });
 
-      // ===== Auto-login check =====
+      // Retry connection button
+      const retryBtn = $('retry-btn');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+          if (!activeChat) return;
+          if (peer && peer.disconnected) {
+            peer.reconnect();
+            setTimeout(() => attemptConnect(activeChat), 1500);
+          } else {
+            attemptConnect(activeChat);
+          }
+          showToast(`Trying to reconnect to ${activeChat}...`, 'info');
+        });
+      }
+
+      // Auto-login check
       async function tryAutoLogin() {
         const saved = loadFromStorage();
         if (saved && saved.username && saved.passwordHash && saved.contacts) {
@@ -1037,7 +1068,7 @@
             }
           });
         }
-      }, 20000);
+      }, 10000);
 
       // ===== Init =====
       tryAutoLogin();
